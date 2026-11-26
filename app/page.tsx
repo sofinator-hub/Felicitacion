@@ -25,10 +25,6 @@ export default function Home() {
           {/* TEXTO */}
           <div className="relative z-10 max-w-3xl mx-auto text-center">
 
-            <p className="text-[10px] sm:text-xs tracking-[0.45em] uppercase text-[#AFC6F1] mb-10">
-              Un día para celebrar tu existencia
-            </p>
-
             <h2 className="text-4xl sm:text-5xl md:text-7xl font-light tracking-wide leading-tight mb-12">
             NANOOOOO
 
@@ -37,7 +33,7 @@ export default function Home() {
             <div className="w-20 h-px bg-gradient-to-r from-transparent via-[#AFC6F1] to-transparent mx-auto mb-12" />
 
             <p className="text-lg sm:text-xl md:text-2xl leading-[2] font-light text-white">
-              Feliz cumpleaños amor, eres una persona maravillosa y única,
+              Feliz cumpleaños 22 amor, eres una persona maravillosa y única,
               no hay nadie como tú en todo el mundo y eres mi persona favorita,
               sigue soñando en grande, yo estaré a lado tuyo siempre,
               te amo con todo mi corazón guapo.
