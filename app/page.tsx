@@ -30,10 +30,8 @@ export default function Home() {
             </p>
 
             <h2 className="text-4xl sm:text-5xl md:text-7xl font-light tracking-wide leading-tight mb-12">
-              Feliz cumpleaños,
-              <span className="block mt-3 text-[#AFC6F1] italic">
-                amor.
-              </span>
+            NANOOOOO
+
             </h2>
 
             <div className="w-20 h-px bg-gradient-to-r from-transparent via-[#AFC6F1] to-transparent mx-auto mb-12" />
