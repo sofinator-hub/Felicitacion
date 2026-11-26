@@ -3,17 +3,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Environment } from "@react-three/drei";
-import {
-  EffectComposer,
-  Bloom,
-  Vignette,
-} from "@react-three/postprocessing";
+import { Bloom, EffectComposer, Vignette } from "@react-three/postprocessing";
 import * as THREE from "three";
 
-// ==========================================
-// TIPOS
-// ==========================================
+// ======================================================
+// TIPOS Y CONFIGURACIÓN
+// ======================================================
 
 type Point3D = [number, number, number];
 
@@ -29,10 +24,6 @@ interface LotusAnimationData {
   columns: number;
   frames: LotusFrame[];
 }
-
-// ==========================================
-// CONFIGURACIÓN
-// ==========================================
 
 const PETAL_COLORS = [
   "#5479B8",
@@ -67,7 +58,6 @@ function createIndices(rows: number, columns: number) {
       const b = a + columns;
       const c = b + 1;
       const d = a + 1;
-
       indices.push(a, b, d, b, c, d);
     }
   }
@@ -75,9 +65,9 @@ function createIndices(rows: number, columns: number) {
   return indices;
 }
 
-// ==========================================
+// ======================================================
 // PÉTALOS ANIMADOS
-// ==========================================
+// ======================================================
 
 function AnimatedPetal({
   frames,
@@ -93,22 +83,23 @@ function AnimatedPetal({
   replayKey: number;
 }) {
   const startTime = useRef<number | null>(null);
+  const frameCounter = useRef(0);
 
   const geometry = useMemo(() => {
     const geo = new THREE.BufferGeometry();
-    const initialPoints = frames[0].petals[petalIndex];
-
+    const initialPoints = frames[0]?.petals[petalIndex] ?? [];
     const positions = new Float32Array(rows * columns * 3);
 
-    initialPoints.forEach((row, rowIndex) => {
-      row.forEach((point, colIndex) => {
-        const index = (rowIndex * columns + colIndex) * 3;
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < columns; col++) {
+        const point = initialPoints[row]?.[col] ?? [0, 0, 0];
+        const index = (row * columns + col) * 3;
 
         positions[index] = point[0];
         positions[index + 1] = point[1];
         positions[index + 2] = point[2];
-      });
-    });
+      }
+    }
 
     geo.setAttribute(
       "position",
@@ -123,6 +114,7 @@ function AnimatedPetal({
 
   useEffect(() => {
     startTime.current = null;
+    frameCounter.current = 0;
   }, [replayKey]);
 
   useEffect(() => {
@@ -137,7 +129,8 @@ function AnimatedPetal({
     }
 
     const elapsed = clock.elapsedTime - startTime.current;
-    const delay = (petalIndex / frames.length) * PETAL_DELAY;
+    const delay =
+      (petalIndex / Math.max(1, frames.length)) * PETAL_DELAY;
 
     const rawProgress = THREE.MathUtils.clamp(
       (elapsed - delay) / PETAL_DURATION,
@@ -156,19 +149,20 @@ function AnimatedPetal({
 
     const blend = framePosition - frameIndex;
 
-    const current = frames[frameIndex].petals[petalIndex];
-    const next = frames[nextIndex].petals[petalIndex];
+    const current = frames[frameIndex]?.petals[petalIndex];
+    const next = frames[nextIndex]?.petals[petalIndex];
 
-    const position =
-      geometry.attributes.position as THREE.BufferAttribute;
+    if (!current || !next) return;
 
+    const position = geometry.attributes.position as THREE.BufferAttribute;
     const array = position.array as Float32Array;
+
     let vertex = 0;
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < columns; col++) {
-        const a = current[row][col];
-        const b = next[row][col];
+        const a = current[row]?.[col] ?? [0, 0, 0];
+        const b = next[row]?.[col] ?? a;
 
         array[vertex++] = THREE.MathUtils.lerp(
           a[0],
@@ -191,7 +185,13 @@ function AnimatedPetal({
     }
 
     position.needsUpdate = true;
-    geometry.computeVertexNormals();
+
+    // Recalcular normales en frames alternos.
+    frameCounter.current += 1;
+
+    if (frameCounter.current % 2 === 0) {
+      geometry.computeVertexNormals();
+    }
   });
 
   const color = PETAL_COLORS[petalIndex % PETAL_COLORS.length];
@@ -203,15 +203,15 @@ function AnimatedPetal({
           color={color}
           transparent
           opacity={0.68}
-          roughness={0.42}
-          metalness={0.12}
-          clearcoat={0.45}
-          clearcoatRoughness={0.35}
-          sheen={0.4}
+          roughness={0.48}
+          metalness={0.08}
+          clearcoat={0.3}
+          clearcoatRoughness={0.4}
+          sheen={0.25}
           sheenColor="#B8C9E8"
-          sheenRoughness={0.5}
+          sheenRoughness={0.55}
           emissive={color}
-          emissiveIntensity={0.008}
+          emissiveIntensity={0.006}
           side={THREE.DoubleSide}
           depthWrite={false}
         />
@@ -222,7 +222,7 @@ function AnimatedPetal({
           color="#B9C9E5"
           wireframe
           transparent
-          opacity={0.13}
+          opacity={0.09}
           depthWrite={false}
           side={THREE.DoubleSide}
         />
@@ -231,35 +231,33 @@ function AnimatedPetal({
   );
 }
 
-// ==========================================
-// CENTRO ANIMADO
-// ==========================================
+// ======================================================
+// CENTRO DE LA FLOR
+// ======================================================
 
-function LotusCenter({
-  replayKey,
-}: {
-  replayKey: number;
-}) {
+function LotusCenter({ replayKey }: { replayKey: number }) {
   const centerRef = useRef<THREE.Group>(null);
   const startTime = useRef<number | null>(null);
   const lightRef = useRef<THREE.PointLight>(null);
+  const lastOpacity = useRef(-1);
 
   const stamens = useMemo(() => {
-    return Array.from({ length: 16 }, (_, index) => {
-      const angle = (index / 16) * Math.PI * 2;
+    return Array.from({ length: 12 }, (_, index) => {
+      const angle = (index / 12) * Math.PI * 2;
       const radius = 0.13 + (index % 3) * 0.012;
 
       return {
         x: Math.cos(angle) * radius,
         y: Math.sin(angle) * radius,
         z: 0.19 + (index % 3) * 0.012,
-        size: index % 2 === 0 ? 0.021 : 0.015,
+        size: index % 2 === 0 ? 0.019 : 0.014,
       };
     });
   }, []);
 
   useEffect(() => {
     startTime.current = null;
+    lastOpacity.current = -1;
 
     if (centerRef.current) {
       centerRef.current.scale.setScalar(0.001);
@@ -300,38 +298,35 @@ function LotusCenter({
 
     const progress = smoothProgress(rawProgress);
 
-    const scale = THREE.MathUtils.lerp(
-      0.001,
-      1,
-      progress
-    );
+    const scale =
+      progress >= 1
+        ? 1 + Math.sin(clock.elapsedTime * 1.2) * 0.012
+        : THREE.MathUtils.lerp(0.001, 1, progress);
 
     centerRef.current.scale.setScalar(scale);
 
     centerRef.current.rotation.z =
       Math.sin(clock.elapsedTime * 0.4) * 0.018;
 
-    if (progress >= 1) {
-      const pulse =
-        1 + Math.sin(clock.elapsedTime * 1.2) * 0.012;
+    // Actualizar opacidad solo cuando cambia perceptiblemente.
+    if (Math.abs(progress - lastOpacity.current) > 0.004) {
+      lastOpacity.current = progress;
 
-      centerRef.current.scale.setScalar(pulse);
+      centerRef.current.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          const materials = Array.isArray(child.material)
+            ? child.material
+            : [child.material];
+
+          materials.forEach((material) => {
+            material.opacity = progress;
+          });
+        }
+      });
     }
 
-    centerRef.current.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
-        const materials = Array.isArray(child.material)
-          ? child.material
-          : [child.material];
-
-        materials.forEach((material) => {
-          material.opacity = progress;
-        });
-      }
-    });
-
     if (lightRef.current) {
-      lightRef.current.intensity = progress * 0.12;
+      lightRef.current.intensity = progress * 0.1;
     }
   });
 
@@ -339,7 +334,8 @@ function LotusCenter({
     <group ref={centerRef} scale={0.001}>
       {/* Halo */}
       <mesh position={[0, 0, 0.12]}>
-        <sphereGeometry args={[0.19, 40, 40]} />
+        <sphereGeometry args={[0.19, 24, 24]} />
+
         <meshBasicMaterial
           color="#668BC0"
           transparent
@@ -350,11 +346,12 @@ function LotusCenter({
 
       {/* Anillo plateado */}
       <mesh position={[0, 0, 0.16]}>
-        <torusGeometry args={[0.145, 0.007, 16, 80]} />
+        <torusGeometry args={[0.145, 0.007, 10, 48]} />
+
         <meshPhysicalMaterial
           color="#AFC2DF"
-          metalness={0.85}
-          roughness={0.24}
+          metalness={0.8}
+          roughness={0.28}
           transparent
           opacity={0}
         />
@@ -362,15 +359,15 @@ function LotusCenter({
 
       {/* Esfera central */}
       <mesh position={[0, 0, 0.19]}>
-        <sphereGeometry args={[0.095, 48, 48]} />
+        <sphereGeometry args={[0.095, 24, 24]} />
+
         <meshPhysicalMaterial
           color="#829FCB"
-          metalness={0.55}
-          roughness={0.24}
-          clearcoat={0.85}
-          clearcoatRoughness={0.18}
+          metalness={0.5}
+          roughness={0.28}
+          clearcoat={0.7}
           emissive="#526F9E"
-          emissiveIntensity={0.035}
+          emissiveIntensity={0.025}
           transparent
           opacity={0}
         />
@@ -378,12 +375,13 @@ function LotusCenter({
 
       {/* Perla interior */}
       <mesh position={[0, 0, 0.27]}>
-        <sphereGeometry args={[0.043, 40, 40]} />
+        <sphereGeometry args={[0.043, 24, 24]} />
+
         <meshPhysicalMaterial
           color="#D1DCEF"
-          metalness={0.7}
-          roughness={0.2}
-          clearcoat={0.8}
+          metalness={0.65}
+          roughness={0.24}
+          clearcoat={0.7}
           transparent
           opacity={0}
         />
@@ -395,7 +393,7 @@ function LotusCenter({
           key={index}
           position={[stamen.x, stamen.y, stamen.z]}
         >
-          <sphereGeometry args={[stamen.size, 18, 18]} />
+          <sphereGeometry args={[stamen.size, 10, 10]} />
 
           <meshPhysicalMaterial
             color={
@@ -405,8 +403,8 @@ function LotusCenter({
                   ? "#A6B8D5"
                   : "#79B7C8"
             }
-            metalness={0.72}
-            roughness={0.26}
+            metalness={0.65}
+            roughness={0.3}
             transparent
             opacity={0}
           />
@@ -423,9 +421,9 @@ function LotusCenter({
   );
 }
 
-// ==========================================
-// FLOR RESPONSIVE
-// ==========================================
+// ======================================================
+// FLOR RESPONSIVE: MÁS GRANDE EN MÓVILES
+// ======================================================
 
 function LotusFlower({
   data,
@@ -434,19 +432,18 @@ function LotusFlower({
   data: LotusAnimationData;
   replayKey: number;
 }) {
-  const { viewport } = useThree();
+  const { viewport, size } = useThree();
 
-  const isMobile = viewport.width < 5;
+  const isMobile = size.width < 768;
 
-  const responsiveScale = THREE.MathUtils.clamp(
-    viewport.width / (isMobile ? 5.8 : 5.2),
-    0.55,
-    1.18
-  );
+  // Aumenta el tamaño en móviles.
+  const responsiveScale = isMobile
+    ? THREE.MathUtils.clamp(viewport.width / 3.9, 0.9, 1.32)
+    : THREE.MathUtils.clamp(viewport.width / 5.2, 0.75, 1.18);
 
   return (
     <group
-      position={[0, isMobile ? -0.25 : -0.12, 0]}
+      position={[0, isMobile ? -0.12 : -0.12, 0]}
       scale={responsiveScale}
     >
       {Array.from({ length: data.petalCount }).map((_, index) => (
@@ -465,12 +462,15 @@ function LotusFlower({
   );
 }
 
-// ==========================================
-// ESTRELLAS
-// ==========================================
+// ======================================================
+// ESTRELLAS: MENOS PARTÍCULAS EN MÓVIL
+// ======================================================
 
 function ParticleField() {
   const pointsRef = useRef<THREE.Points>(null);
+  const { size } = useThree();
+
+  const isMobile = size.width < 768;
 
   const geometry = useMemo(() => {
     const positions: number[] = [];
@@ -487,7 +487,9 @@ function ParticleField() {
       new THREE.Color("#E1D8F2"),
     ];
 
-    for (let i = 0; i < 420; i++) {
+    const count = isMobile ? 170 : 320;
+
+    for (let i = 0; i < count; i++) {
       const angle = i * 2.39996;
       const radius = 2.5 + ((i * 37) % 100) / 12;
 
@@ -515,16 +517,16 @@ function ParticleField() {
     );
 
     return geo;
-  }, []);
+  }, [isMobile]);
 
   useFrame(({ clock }) => {
     if (!pointsRef.current) return;
 
     pointsRef.current.rotation.y =
-      Math.sin(clock.elapsedTime * 0.04) * 0.035;
+      Math.sin(clock.elapsedTime * 0.04) * 0.025;
 
     pointsRef.current.rotation.z =
-      clock.elapsedTime * 0.002;
+      clock.elapsedTime * 0.001;
   });
 
   useEffect(() => {
@@ -538,10 +540,10 @@ function ParticleField() {
       frustumCulled={false}
     >
       <pointsMaterial
-        size={0.023}
+        size={0.022}
         vertexColors
         transparent
-        opacity={0.78}
+        opacity={0.72}
         sizeAttenuation
         depthWrite={false}
       />
@@ -549,9 +551,9 @@ function ParticleField() {
   );
 }
 
-// ==========================================
+// ======================================================
 // ÓRBITAS
-// ==========================================
+// ======================================================
 
 function OrbitRings() {
   const orbitRef = useRef<THREE.Group>(null);
@@ -567,20 +569,21 @@ function OrbitRings() {
     if (!orbitRef.current) return;
 
     orbitRef.current.rotation.z =
-      clock.elapsedTime * 0.012;
+      clock.elapsedTime * 0.008;
 
     orbitRef.current.rotation.x =
-      Math.sin(clock.elapsedTime * 0.1) * 0.012;
+      Math.sin(clock.elapsedTime * 0.1) * 0.01;
   });
 
   return (
     <group ref={orbitRef} scale={responsiveScale}>
       <mesh position={[0, 0, -0.5]}>
-        <torusGeometry args={[1.75, 0.0025, 8, 180]} />
+        <torusGeometry args={[1.75, 0.0025, 6, 128]} />
+
         <meshBasicMaterial
           color="#7799C8"
           transparent
-          opacity={0.32}
+          opacity={0.28}
         />
       </mesh>
 
@@ -588,11 +591,12 @@ function OrbitRings() {
         rotation={[0.35, 0.2, 0.2]}
         position={[0, 0, -0.6]}
       >
-        <torusGeometry args={[2.15, 0.002, 8, 180]} />
+        <torusGeometry args={[2.15, 0.002, 6, 128]} />
+
         <meshBasicMaterial
           color="#A2A8C8"
           transparent
-          opacity={0.2}
+          opacity={0.17}
         />
       </mesh>
 
@@ -600,68 +604,84 @@ function OrbitRings() {
         rotation={[-0.35, 0.2, -0.3]}
         position={[0, 0, -0.8]}
       >
-        <torusGeometry args={[2.55, 0.0015, 8, 180]} />
+        <torusGeometry args={[2.55, 0.0015, 6, 128]} />
+
         <meshBasicMaterial
           color="#7586B2"
           transparent
-          opacity={0.12}
+          opacity={0.1}
         />
       </mesh>
     </group>
   );
 }
 
-// ==========================================
+// ======================================================
 // ILUMINACIÓN
-// ==========================================
+// ======================================================
 
 function LotusLighting() {
   return (
     <>
-      <ambientLight intensity={0.38} />
+      <ambientLight intensity={0.34} />
 
       <directionalLight
         position={[3, 5, 4]}
-        intensity={0.65}
+        intensity={0.58}
         color="#B7C9E8"
       />
 
       <pointLight
         position={[-2, 2, 3]}
-        intensity={0.38}
+        intensity={0.3}
         color="#638BC5"
         distance={8}
       />
 
       <pointLight
         position={[2, 1, -2]}
-        intensity={0.3}
+        intensity={0.22}
         color="#8B83BD"
-        distance={8}
-      />
-
-      <pointLight
-        position={[0, 4, 2]}
-        intensity={0.25}
-        color="#C2D2EA"
         distance={8}
       />
     </>
   );
 }
 
-// ==========================================
+// ======================================================
+// POSTPROCESADO: SOLO EN PANTALLAS GRANDES
+// ======================================================
+
+function SceneEffects() {
+  const { size } = useThree();
+
+  const isMobile = size.width < 768;
+
+  if (isMobile) return null;
+
+  return (
+    <EffectComposer multisampling={0}>
+      <Bloom
+        intensity={0.08}
+        luminanceThreshold={0.96}
+        luminanceSmoothing={0.2}
+        mipmapBlur
+      />
+
+      <Vignette
+        offset={0.3}
+        darkness={0.38}
+      />
+    </EffectComposer>
+  );
+}
+
+// ======================================================
 // ESCENA PRINCIPAL
-// ==========================================
+// ======================================================
 
-export default function LotusScene({
-  onContinue,
-}: {
-  onContinue?: () => void;
-}) {
-  const [data, setData] =
-    useState<LotusAnimationData | null>(null);
-
+export default function LotusScene() {
+  const [data, setData] = useState<LotusAnimationData | null>(null);
   const [error, setError] = useState(false);
   const [replayKey, setReplayKey] = useState(0);
 
@@ -677,10 +697,14 @@ export default function LotusScene({
         return response.json();
       })
       .then((json: LotusAnimationData) => {
-        if (!cancelled) setData(json);
+        if (!cancelled) {
+          setData(json);
+        }
       })
       .catch(() => {
-        if (!cancelled) setError(true);
+        if (!cancelled) {
+          setError(true);
+        }
       });
 
     return () => {
@@ -688,12 +712,12 @@ export default function LotusScene({
     };
   }, []);
 
+  // Cada clic reinicia la animación de la flor.
+  const handleScreenClick = () => {
+    if (!data) return;
 
-const handleScreenClick = () => {
-  if (!data) return;
-
-  setReplayKey((value) => value + 1);
-};
+    setReplayKey((value) => value + 1);
+  };
 
   if (error) {
     return (
@@ -740,20 +764,19 @@ const handleScreenClick = () => {
           up: [0, 1, 0],
         }}
         gl={{
-          antialias: true,
+          antialias: false,
           alpha: true,
+          powerPreference: "high-performance",
           toneMapping: THREE.ACESFilmicToneMapping,
           toneMappingExposure: 0.82,
         }}
-        dpr={[1, 1.25]}
+        dpr={[1, 1.15]}
       >
         <fog attach="fog" args={["#000000", 12, 20]} />
 
         <ParticleField />
         <OrbitRings />
         <LotusLighting />
-
-        <Environment preset="studio" />
 
         {data && (
           <LotusFlower
@@ -762,19 +785,7 @@ const handleScreenClick = () => {
           />
         )}
 
-        <EffectComposer multisampling={0}>
-          <Bloom
-            intensity={0.1}
-            luminanceThreshold={0.94}
-            luminanceSmoothing={0.2}
-            mipmapBlur
-          />
-
-          <Vignette
-            offset={0.3}
-            darkness={0.42}
-          />
-        </EffectComposer>
+        <SceneEffects />
       </Canvas>
 
       {/* ENCABEZADO */}
